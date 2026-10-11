@@ -3422,7 +3422,7 @@ public class Char {
         getAvatarData().getCharacterStat().setPortal(portal.getId());
         setPosition(new Position(portal.getX(), portal.getY()));
         initFriendStatus();
-        getClient().getChannelInstance().broadcastPacket(WvsContext.broadcastMessage(4, getClient().getChannel(), "Welcome to v214 development!", false));
+        getClient().getChannelInstance().broadcastPacket(WvsContext.broadcastMessage(4, getClient().getChannel(), "Welcome to James's Private Server!", false));
         getClient().write(Stage.setField(this, toField, getClient().getChannel(), false, 0, characterData, hasBuffProtector(),
                 (byte) (portal != null ? portal.getId() : 0), false, 100, null, true, -1));
         toField.addChar(this);

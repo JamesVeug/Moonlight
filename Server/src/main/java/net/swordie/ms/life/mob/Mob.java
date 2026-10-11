@@ -2039,8 +2039,8 @@ public class Mob extends Life {
 
     public int getMesoDropAmount() {
         return Util.getRandom(
-            GameConstants.MIN_MONEY_MULT * getForcedMobStat().getLevel(),
-            GameConstants.MAX_MONEY_MULT * getForcedMobStat().getLevel()
+            GameConstants.MIN_MONEY_MULT * getForcedMobStat().getLevel() * GameConstants.MOB_MESO_RATE,
+            GameConstants.MAX_MONEY_MULT * getForcedMobStat().getLevel() * GameConstants.MOB_MESO_RATE
         );
     }
 

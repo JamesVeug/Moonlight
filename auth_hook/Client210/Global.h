@@ -15,7 +15,7 @@
 
 #define OPT_APPNAME			"v214"
 #define OPT_APPVERSION		"1.0"
-#define OPT_ADDR_HOSTNAME	"127.0.0.1"
+#define OPT_ADDR_HOSTNAME	"100.114.235.74"
 
 #define OPT_ADDR_SEARCH		"8.31.99."
 #define OPT_ADDR_NEXON		"175.207.3.211"

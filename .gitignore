@@ -1,5 +1,9 @@
 ## Ignore non-local env files
 .env
+client-overlay/
+tools/
+client/
+Play Moonlight.lnk
 
 ## Ignore ./auth_hook compiled files
 auth_hook/ijl15.dll
@@ -348,3 +352,4 @@ ASALocalRun/
 
 # BeatPulse healthcheck temp database
 healthchecksdb
+client.zip

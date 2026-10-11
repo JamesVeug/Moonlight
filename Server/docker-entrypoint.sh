@@ -1,20 +1,13 @@
 #!/bin/bash
-set -e
+set -euo pipefail
 
-# Wait for MySQL to be ready
-# echo "Waiting for MySQL to be ready..."
-# until mysql -h"$MYSQL_HOST" -P"$MYSQL_PORT" -u"$MYSQL_USER" -p"$MYSQL_PASSWORD" -e "SELECT 1"; do
-#   sleep 2
-# done
-
-until mysqladmin ping -h"$MYSQL_HOST" -P"$MYSQL_PORT" -u"$MYSQL_ROOT_USER" -p"$MYSQL_ROOT_PASSWORD" --silent; do
-    sleep 1
+for required in Character.wz Map002.wz/Map String.wz/Skill.img.xml Quest.wz/QuestInfo.img.xml; do
+    if [ ! -e "wz/$required" ]; then
+        echo "Missing exported v214 WZ data: wz/$required. See LOCAL-SETUP.md." >&2
+        exit 1
+    fi
 done
 
-# Execute all SQL migrations
-echo "MySQL is ready, initializing database..."
-chmod +x /app/Server/init_database.sh && /app/Server/init_database.sh
-
-# Start the server
-echo "Starting MapleStory server..."
-java -jar bin/maplestory-2.13.1-jar-with-dependencies.jar
+# MySQL imports schema/data only when its data volume is first created.
+# Never run init_database.sh here: it deletes saved accounts and characters.
+exec java --enable-preview -jar bin/maplestory-2.13.1-jar-with-dependencies.jar

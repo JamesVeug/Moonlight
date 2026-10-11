@@ -15,7 +15,7 @@ namespace Moonlight
         private static readonly ManualResetEvent receiveDone = new ManualResetEvent(false);
 
         // Server IP
-        private readonly string HOST = "127.0.0.1";
+        private readonly string HOST = "100.114.235.74";
         // Server Port
         private readonly int PORT = 8483;
 

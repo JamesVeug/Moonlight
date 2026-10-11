@@ -21,7 +21,7 @@ public class ServerConstants {
 	public static final String MINOR_VERSION = "1";
 	public static final int LOGIN_PORT = 8484;
 	public static final int API_PORT = 8483;
-	public static final byte[] CHANNEL_IP = {54, 68, (byte) 160, (byte) 34};
+	public static final byte[] CHANNEL_IP = {100, 114, (byte) 235, 74};
 	public static final short CHAT_PORT = 0;
 	public static final int BCRYPT_ITERATIONS = 10;
 	public static final long TOKEN_EXPIRY_TIME = 60 * 24; // minutes

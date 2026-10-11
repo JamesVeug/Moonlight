@@ -27,9 +27,9 @@ public class GameConstants {
     public static final int BUFFED_CHANNELS = 3;
     public static final int BUFFED_CH_ST = 6;
     public static final int BUFFED_CH_END = 10;
-    public static final int MOB_EXP_RATE = 8;
-    public static final int MOB_MESO_RATE = 4;
-    public static final int MOB_DROP_RATE = 2;
+    public static final int MOB_EXP_RATE = 50;
+    public static final int MOB_MESO_RATE = 100;
+    public static final int MOB_DROP_RATE = 25;
     public static final long MAX_MONEY = 99_999_999_999_999L;
     public static final short DAMAGE_SKIN_MAX_SIZE = 100;
     public static final int MAX_PET_AMOUNT = 3;

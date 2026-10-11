@@ -246,25 +246,34 @@ namespace MoonlightLauncher
             // Don't need to checksum these files.
             string[] wz_ignore = { "Effect", "Sound", "Morph", "Reactor", "String", "TamingMob", "Base" };
 
-            // Get all .wz files.
-            string[] wz_files = Directory.GetFiles(Directory.GetCurrentDirectory(), "*.wz", SearchOption.TopDirectoryOnly);
-            if ( wz_files.Length != 25 ) {
-                MessageBox.Show("Unable to find the client's required .wz files.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Hand);
+            // Validate the v214 archives explicitly. The client can create additional
+            // files such as Data.wz after its first run.
+            string[] requiredWzNames = {
+                "Base", "Character", "Effect", "Etc", "Item", "Map", "Map001", "Map002", "Map2",
+                "Mob", "Mob001", "Mob2", "Morph", "Npc", "Quest", "Reactor", "Skill", "Skill001",
+                "Skill002", "Sound", "Sound001", "Sound2", "String", "TamingMob", "UI"
+            };
+            string[] wz_files = requiredWzNames.Select(name =>
+                Path.Combine(AppDomain.CurrentDomain.BaseDirectory, name + ".wz")).ToArray();
+            string[] missingFiles = wz_files.Where(path => !File.Exists(path)).Select(Path.GetFileName).ToArray();
+            if (missingFiles.Length > 0) {
+                MessageBox.Show("Missing required client files:\n" + string.Join("\n", missingFiles), "Error", MessageBoxButtons.OK, MessageBoxIcon.Hand);
                 return false;
             }
 
             // Perform CRC32 checks on all .wz files.
             bool allFilesValid = true;
-            await Task.Run(() =>
+            await Task.Run(async () =>
             {
-                Parallel.ForEach(wz_files, async wz_file =>
+                // Requests share one socket, so validate and await them in order.
+                foreach (string wz_file in wz_files)
                 {
                     if (!await VerifyFileIntegrityAsync(wz_file, wz_ignore))
                     {
                         allFilesValid = false;
                         return;
                     }
-                });
+                }
             });
 
             // One or more .wz file failed the integrity check.

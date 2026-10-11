@@ -1,0 +1,11 @@
+.git
+.env
+Launcher
+auth_hook
+Server/wz
+Server/dat
+Server/bin
+Server/logs
+tools
+client
+client-overlay

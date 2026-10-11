@@ -38,21 +38,42 @@ Write-Host "3/5 Restarting WebClient to apply the limit..." -ForegroundColor Cya
 Restart-Service WebClient
 Start-Sleep -Seconds 2
 
-$share = '\\100.100.100.100@8080\DavWWWRoot\m4pster@gmail.com\james\moonlight'
-Write-Host "4/5 Mounting the share:`n    $share" -ForegroundColor Cyan
-# Clean up any stale mapping on M:
-cmd /c "net use M: /delete /y" 2>$null | Out-Null
-cmd /c "net use M: `"$share`"" | Write-Host
+# Mount the Taildrive WebDAV ROOT, then auto-discover the share path.
+# The root lists one folder per tailnet; inside is one folder per device, then its shares.
+# We don't hardcode the tailnet name (it differs per account) - we find it.
+$root = '\\100.100.100.100@8080\DavWWWRoot'
+Write-Host "4/5 Mounting Taildrive root ($root) and locating the 'moonlight' share..." -ForegroundColor Cyan
+# NOTE: redirect stderr INSIDE cmd (>nul 2>nul), never with PowerShell's 2>$null -
+# PS turns a native command's stderr into a terminating error under ErrorActionPreference=Stop.
+cmd /c "net use M: /delete /y >nul 2>nul"   # ok if nothing was mapped
+cmd /c "net use M: ""$root"" 2>&1" | Write-Host
 if ($LASTEXITCODE -ne 0) {
-    throw "Could not mount the share. Check that Tailscale is connected and that you can reach 'james' (try: tailscale ping james)."
+    throw "Could not mount Taildrive. Check Tailscale is connected (try: tailscale ping james) and that you were granted the 'drive:access' attribute in the tailnet ACLs."
 }
+
+# Find james\moonlight regardless of what the tailnet folder is called.
+$sharePath = $null
+foreach ($tnet in Get-ChildItem M:\ -Directory -ErrorAction SilentlyContinue) {
+    $candidate = Join-Path $tnet.FullName 'james\moonlight'
+    if (Test-Path $candidate) { $sharePath = $candidate; break }
+}
+if (-not $sharePath) {
+    $found = Get-ChildItem M:\ -Recurse -Depth 2 -Directory -ErrorAction SilentlyContinue |
+             Where-Object { $_.Name -eq 'moonlight' } | Select-Object -First 1
+    if ($found) { $sharePath = $found.FullName }
+}
+if (-not $sharePath) {
+    cmd /c "net use M: /delete /y >nul 2>nul"
+    throw "Mounted Taildrive but couldn't find the 'moonlight' share. Open M:\ in Explorer to see what's there, or check the ACL drive:access attribute."
+}
+Write-Host "Found share at: $sharePath" -ForegroundColor Green
 
 Write-Host "5/5 Copying client to $Destination  (this is ~17 GB, be patient)..." -ForegroundColor Cyan
 New-Item -ItemType Directory -Force -Path $Destination | Out-Null
 # robocopy: /E all subdirs, /Z restartable, /MT multithread, /R retries, no per-file spam
-robocopy "M:\" "$Destination" /E /Z /MT:16 /R:3 /W:5 /NFL /NDL /NP
+robocopy "$sharePath" "$Destination" /E /Z /MT:16 /R:3 /W:5 /NFL /NDL /NP
 $rc = $LASTEXITCODE  # robocopy: 0-7 are success codes
-cmd /c "net use M: /delete /y" 2>$null | Out-Null
+cmd /c "net use M: /delete /y >nul 2>nul"
 
 if ($rc -ge 8) { throw "robocopy reported errors (code $rc). Some files may not have copied." }
 Write-Host "`nDone. Client copied to: $Destination" -ForegroundColor Green

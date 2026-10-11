@@ -64,6 +64,8 @@ Credentials live in `.env` (DB name `Moonlight`, user `moonlight`/`password`). R
 
 Account rank is `users.accounttype` (stored as the `AccountType` enum **ordinal**, `@Enumerated(ORDINAL)`): `0`=Player, `1`=Tester, `2`=Intern, `3`=GameMaster, `4`=Admin. Changes require the player to relog (account type is cached in memory at login).
 
+**Passwords & creating accounts directly:** `password` is stored hashed, but `LoginHandler`/`ApiRequestHandler` check `Util.isStringBCrypt(dbPassword)` first — if the stored value is NOT a BCrypt hash it's compared as **plaintext** and auto-upgraded to a hash on the next successful login. So you can set a password with `UPDATE users SET password='password' WHERE name='x';` and it just works. All `users` columns are nullable except `id`, so you can pre-create a full account (skipping the in-game Create Account flow) with e.g. `INSERT INTO users (name, password, accounttype, characterslots, pblockreason) VALUES ('theveug','password',4,4,3);` — the `accounts`/character rows are created on first login. Account creation requires name ≥ 4 chars and password ≥ 4 chars.
+
 ## In-game commands
 
 Two prefixes: `@` = player commands (`PlayerCommands.java`), `!` = admin commands (`AdminCommands.java`). Permission check is `accountType.ordinal() >= requiredType.ordinal()`. Most useful admin commands require **Tester+**: `!nx <n>` (NX Prepaid / Cash Shop), `!maplepoints <n>`, `!vp <n>` (vote points, used by custom NPC shops — NOT the Cash Shop), `!item <id|name> [qty]`. The Cash Shop spends NX Credit / NX Prepaid / Maple Points (`CashShopHandler.java`), not vote points.
@@ -78,12 +80,46 @@ Two prefixes: `@` = player commands (`PlayerCommands.java`), `!` = admin command
 
 ## Making the server reachable off-localhost (LAN / Tailscale)
 
-By default everything is localhost-only. To let remote clients join, **four** hardcoded `127.0.0.1` locations must ALL point at the reachable server IP:
+This server was successfully opened to remote players over **Tailscale** (host device `james` = `100.114.235.74`, tailnet `m4pster@gmail.com`). It required FIVE things; missing any one makes remote clients fail in a different, confusing way. Recreate all of them when the server IP changes.
 
-1. `auth_hook/Client210/Global.h` → `OPT_ADDR_HOSTNAME` (client login IP). Rebuild the DLL.
-2. `Server/src/main/java/net/swordie/ms/ServerConstants.java` → `CHANNEL_IP = {b,b,b,b}` (channel IP handed to clients). Java `byte` is signed — octets >127 need a `(byte)` cast. Rebuild the server image.
+### A. Point the four hardcoded `127.0.0.1` locations at the reachable server IP
+
+1. `auth_hook/Client210/Global.h` → `OPT_ADDR_HOSTNAME` (client login IP). Rebuild `ijl15.dll`, deploy as `Moonlight.dll`.
+2. `Server/src/main/java/net/swordie/ms/ServerConstants.java` → `CHANNEL_IP = {b,b,b,b}` (channel IP handed to clients). Java `byte` is signed — octets >127 need a `(byte)` cast (e.g. `235` → `(byte) 235`). Rebuild the server image.
 3. `docker-compose.yml` ports → bind `0.0.0.0:` instead of `127.0.0.1:`.
-4. `Launcher/v214/main/Client.cs` → `HOST` (launcher checksum API on 8483). Rebuild the launcher.
+4. `Launcher/v214/main/Client.cs` → `HOST` (the launcher's checksum/token API on 8483). Rebuild the launcher.
+
+Both the launcher **and** the client auth DLL point at the server IP; the launcher's login window does a token request to 8483 *before* the client ever launches, so if 8483 is unreachable the login window just clears the password with no error.
+
+### B. Expose the ports past the WSL2 boundary (`Enable-RemoteAccess.ps1`)
+
+Podman runs in a WSL2 VM. `0.0.0.0` in `docker-compose.yml` only binds *inside* the VM; WSL2 re-publishes the ports on Windows at `127.0.0.1` only (via `wslrelay`), so the Tailscale interface can't reach them. `Enable-RemoteAccess.ps1` (run as admin) adds `netsh portproxy` entries listening on the Tailscale IP → forwarding to `127.0.0.1`, for all 12 ports (8483, 8484, 8585-8594), plus a Windows Firewall inbound allow rule. Re-run it after a reboot or an IP change (`-TailscaleIP <ip>`, `-Remove` to undo).
+
+### C. Grant network access in the Tailscale ACL (easy to miss)
+
+A customized Tailscale ACL that uses `grants`/Taildrive **replaces** the default allow-all, so peer TCP to the game ports is denied unless explicitly granted. Symptom: `tailscale ping james` succeeds and Taildrive works, but `Test-NetConnection <ip> -Port 8484` fails — because `ping` and Taildrive have their own grants while raw TCP does not. Fix: add a connectivity grant to the ACL:
+
+```json
+"grants": [
+  { "src": ["*"], "dst": ["*"], "ip": ["*"] }
+]
+```
+
+Diagnose remote reachability with, from the client PC: `tailscale ping james` (tunnel) **and** `Test-NetConnection <serverIP> -Port 8484` (actual port). Ping-yes / TCP-no almost always means the ACL grant is missing.
+
+### D & E. Each remote player needs the rebuilt client + to be on the tailnet
+
+They need the full v214 `client/` folder (~17 GB) containing the **rebuilt** `Moonlight.dll` and launcher, and must be a member of the tailnet. Client distribution was done via **Taildrive** — see below.
+
+## Distributing the 17 GB client over Taildrive
+
+Used to hand the client to remote players without Discord/Drive size limits. Host-side: `tailscale drive share moonlight "F:\Maplestory_PrivateServer_Moonlight\client"`. The ACL needs BOTH a `nodeAttrs` block (`drive:share` on the host, `drive:access` on accessors — grant by email to cover shared/external users) AND a `grants` entry with `tailscale.com/cap/drive` (`"shares": ["*"]`, `"access": "ro"` — read-only also protects the live folder). `Get-MoonlightClient.ps1` is the client-side helper players run as admin.
+
+Windows WebDAV gotchas baked into that script (all required):
+- **WebClient service** must be running (`Set-Service WebClient -StartupType Automatic; Start-Service WebClient`).
+- **47 MB file-size cap**: raise `HKLM\SYSTEM\CurrentControlSet\Services\WebClient\Parameters\FileSizeLimitInBytes` to `0xFFFFFFFF` (the client has 22 files over the cap, up to ~1.8 GB), then restart WebClient — otherwise large `.wz` copies silently fail.
+- **Mount the root, don't hardcode the deep path**: `net use M: \\100.100.100.100@8080\DavWWWRoot` then browse `M:\<tailnet>\<device>\<share>`. The tailnet folder is literally named `m4pster@gmail.com`; embedding that `@` in a deep UNC path breaks the WebDAV redirector (System error 1920). The script auto-discovers `…\james\moonlight`.
+- In PowerShell with `ErrorActionPreference=Stop`, never put PowerShell's `2>$null` on a native command — redirect inside cmd (`>nul 2>nul`) or a harmless stderr line (e.g. `net use /delete` when nothing is mapped) becomes a fatal error.
 
 ## Building the native/C# components
 

@@ -33,30 +33,30 @@ else:
 
     ]
 
-    list = "I can warp you to any #bTown, #dBoss#k or #rJump Quest#k !"
+    menu = "I can warp you to any #bTown, #dBoss#k or #rJump Quest#k !"
     i = 0
     while i < len(options):
-        list += "\r\n#b#L" +str(i)+ "#" + str(options[i])
+        menu += "\r\n#b#L" +str(i)+ "#" + str(options[i])
         i += 1
     i = 0
-    option = sm.sendNext(list)
+    option = sm.sendNext(menu)
     if option == 0: # I want to go somewhere (maps)
-        list = "Where would you like to go? "
+        menu = "Where would you like to go? "
         while i < len(options2):
-            list += "\r\n#b#L" +str(i)+ "#" + str(options2[i])
+            menu += "\r\n#b#L" +str(i)+ "#" + str(options2[i])
             i += 1
         i = 0
-        ans1 = sm.sendNext(list)
-        list = "These are your options: "
+        ans1 = sm.sendNext(menu)
+        menu = "These are your options: "
         if ans1 == 2: # boss maps
             while i < len(maps[ans1]):
-                list += "\r\n#L" + str(i) + "##b" + str(maps[ans1][i][1])
+                menu += "\r\n#L" + str(i) + "##b" + str(maps[ans1][i][1])
                 i += 1
         else: # town/monster maps
             while i < len(maps[ans1]):
-                list += "\r\n#L" + str(i) + "##b#m" + str(maps[ans1][i]) + "#"
+                menu += "\r\n#L" + str(i) + "##b#m" + str(maps[ans1][i]) + "#"
                 i += 1
-        ans2 = sm.sendNext(list)
+        ans2 = sm.sendNext(menu)
         if ans1 == 2: # boss maps
             sm.warp(maps[ans1][ans2][0], 1)
         else:

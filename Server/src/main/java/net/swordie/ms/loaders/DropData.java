@@ -107,6 +107,35 @@ public class DropData {
         return l == null ? null : new HashSet<>(l);
     }
 
+    /**
+     * Looks up every mob that has the given item in its drop table (mob_drops). Mob ID -1 means a global drop.
+     *
+     * @param itemID the item to search for
+     * @return mob ID -> DropInfo, ordered by chance (highest first). One entry per mob.
+     */
+    public static Map<Integer, DropInfo> getMobDropsByItemId(int itemID) {
+        Map<Integer, DropInfo> result = new LinkedHashMap<>();
+        try (Session session = DatabaseManager.getSession()) {
+            if (session == null) {
+                return result;
+            }
+            Transaction transaction = session.beginTransaction();
+            javax.persistence.Query query = session.createNativeQuery("SELECT mobid, chance, minquant, maxquant " +
+                    "FROM mob_drops WHERE itemid = :itemid ORDER BY chance DESC");
+            query.setParameter("itemid", itemID);
+            List<Object[]> rows = query.getResultList();
+            for (Object[] r : rows) {
+                int mobID = ((Number) r[0]).intValue();
+                int chance = ((Number) r[1]).intValue();
+                int minQuant = r[2] == null ? 1 : ((Number) r[2]).intValue();
+                int maxQuant = r[3] == null ? 1 : ((Number) r[3]).intValue();
+                result.putIfAbsent(mobID, new DropInfo(itemID, chance, minQuant, maxQuant));
+            }
+            transaction.commit();
+        }
+        return result;
+    }
+
     private static Set<DropInfo> getCachedDropInfoById(int mobID) {
         return getDrops().getOrDefault(mobID, null);
     }

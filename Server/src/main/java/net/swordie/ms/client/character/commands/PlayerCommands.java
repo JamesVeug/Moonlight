@@ -12,14 +12,19 @@ import net.swordie.ms.client.character.skills.Skill;
 import net.swordie.ms.client.character.skills.temp.CharacterTemporaryStat;
 import net.swordie.ms.connection.packet.WvsContext;
 import net.swordie.ms.constants.GameConstants;
+import net.swordie.ms.constants.ItemConstants;
 import net.swordie.ms.constants.JobConstants;
 import net.swordie.ms.constants.SkillConstants;
 import net.swordie.ms.enums.AccountType;
 import net.swordie.ms.enums.BaseStat;
+import net.swordie.ms.enums.ItemJob;
 import net.swordie.ms.enums.Stat;
+import net.swordie.ms.life.drop.DropInfo;
 import net.swordie.ms.life.mob.Mob;
+import net.swordie.ms.loaders.DropData;
 import net.swordie.ms.loaders.ItemData;
 import net.swordie.ms.loaders.SkillData;
+import net.swordie.ms.loaders.StringData;
 import net.swordie.ms.loaders.VCoreData;
 import net.swordie.ms.loaders.containerclasses.VCoreInfo;
 import net.swordie.ms.scripts.ScriptManagerImpl;
@@ -231,6 +236,81 @@ public class PlayerCommands {
             } else {
                 chr.chatMessage(SpeakerChannel, "Could not find mob.");
             }
+        }
+    }
+
+    @Command(names = {"whatdrops", "whodrops"}, requiredType = Player)
+    public static class WhatDrops extends PlayerCommand {
+        private static final int MAX_LINES = 25;
+
+        public static void execute(Char chr, String[] args) {
+            if (args.length < 2 || !Util.isNumber(args[1])) {
+                chr.chatMessage(SpeakerChannel, "Usage: @whatdrops <itemid>");
+                return;
+            }
+            int itemId = Integer.parseInt(args[1]);
+            String itemName = StringData.getItemStringById(itemId);
+            if (itemName == null) {
+                chr.chatMessage(SpeakerChannel, String.format("Unknown item ID %d.", itemId));
+                return;
+            }
+            chr.chatMessage(SpeakerChannel, String.format("Drops of %s (%d):", itemName, itemId));
+
+            int lines = 0;
+            Map<Integer, DropInfo> mobDrops = DropData.getMobDropsByItemId(itemId);
+            for (Map.Entry<Integer, DropInfo> entry : mobDrops.entrySet()) {
+                if (lines >= MAX_LINES) {
+                    chr.chatMessage(SpeakerChannel, String.format("...and %d more mobs.", mobDrops.size() - lines));
+                    break;
+                }
+                int mobId = entry.getKey();
+                String mobName = mobId == -1 ? "All mobs (global drop)" : StringData.getMobStringById(mobId);
+                chr.chatMessage(SpeakerChannel, String.format("%s (%d) - %s", mobName == null ? "Unknown" : mobName,
+                        mobId, formatDrop(entry.getValue())));
+                lines++;
+            }
+
+            // Level-based drops that any mob can roll (see Mob#dropDrops)
+            for (Map.Entry<ItemJob, Map<Integer, Set<DropInfo>>> jobEntry : ItemConstants.equipDropsPerLevel.entrySet()) {
+                for (Map.Entry<Integer, Set<DropInfo>> levelEntry : jobEntry.getValue().entrySet()) {
+                    int level = levelEntry.getKey();
+                    for (DropInfo di : levelEntry.getValue()) {
+                        if (di.getItemID() == itemId) {
+                            chr.chatMessage(SpeakerChannel, String.format("Any mob Lv %s (%s characters) - %s",
+                                    level >= 140 ? "140+" : level + "-" + (level + 9), jobEntry.getKey(), formatDrop(di)));
+                            lines++;
+                        }
+                    }
+                }
+            }
+            for (Map.Entry<Integer, Set<DropInfo>> levelEntry : ItemConstants.consumableDropsPerLevel.entrySet()) {
+                int level = levelEntry.getKey();
+                for (DropInfo di : levelEntry.getValue()) {
+                    if (di.getItemID() == itemId) {
+                        chr.chatMessage(SpeakerChannel, String.format("Any mob Lv %s - %s",
+                                level >= 100 ? "100+" : level + "-" + (level + 19), formatDrop(di)));
+                        lines++;
+                    }
+                }
+            }
+
+            if (lines == 0) {
+                chr.chatMessage(SpeakerChannel, "No mobs drop this item.");
+            }
+        }
+
+        private static String formatDrop(DropInfo di) {
+            double basePct = di.getChance() * 100D / GameConstants.MAX_DROP_CHANCE;
+            double ratePct = Math.min(100D, basePct * GameConstants.MOB_DROP_RATE);
+            String quantity = di.getMinQuant() == di.getMaxQuant()
+                    ? "x" + di.getMinQuant()
+                    : "x" + di.getMinQuant() + "-" + di.getMaxQuant();
+            return String.format("%s%% base, %s%% at %dx rate, %s",
+                    formatPct(basePct), formatPct(ratePct), GameConstants.MOB_DROP_RATE, quantity);
+        }
+
+        private static String formatPct(double pct) {
+            return new java.text.DecimalFormat("0.##").format(pct);
         }
     }
 

@@ -30,6 +30,7 @@ public class FieldData {
 
     private static List<Field> fields = new ArrayList<>();
     private static List<Integer> worldMapFields = new ArrayList<>();
+    private static Map<Integer, Set<Integer>> mobSpawnFields; // mob template ID -> field IDs, built lazily
     private static final org.apache.log4j.Logger log = LogManager.getRootLogger();
     private static final boolean LOG_UNKS = false;
 
@@ -870,6 +871,114 @@ public class FieldData {
         copy.setRuneStone(new RuneStone().getRandomRuneStone(copy));
         copy.setProperties(new HashMap<>());
         return copy;
+    }
+
+    /**
+     * Returns the IDs of every field that spawns the given mob, according to the field dat files.
+     * The index is built once, on first use, by scanning the life section of every field dat.
+     *
+     * @param mobID the mob template ID
+     * @return the field IDs (sorted), or an empty set if no field spawns this mob
+     */
+    public static synchronized Set<Integer> getFieldIdsByMobId(int mobID) {
+        if (mobSpawnFields == null) {
+            mobSpawnFields = loadMobSpawnFields();
+        }
+        return mobSpawnFields.getOrDefault(mobID, Collections.emptySet());
+    }
+
+    private static Map<Integer, Set<Integer>> loadMobSpawnFields() {
+        long start = System.currentTimeMillis();
+        Map<Integer, Set<Integer>> result = new HashMap<>();
+        File[] files = new File(ServerConstants.DAT_DIR + "/fields").listFiles();
+        if (files != null) {
+            for (File file : files) {
+                try {
+                    readMobSpawns(file, result);
+                } catch (IOException e) {
+                    log.error("Could not read mob spawns of " + file.getName(), e);
+                }
+            }
+        }
+        log.info(String.format("Indexed mob spawns of %d fields in %dms.", files == null ? 0 : files.length,
+                System.currentTimeMillis() - start));
+        return result;
+    }
+
+    /**
+     * Reads a field dat only up to the end of its life section, collecting mob spawns. Must stay in sync with the
+     * layout read by {@link #readFieldFromFile(File)}.
+     */
+    private static void readMobSpawns(File file, Map<Integer, Set<Integer>> mobSpawnFields) throws IOException {
+        try (DataInputStream dis = new DataInputStream(new BufferedInputStream(new FileInputStream(file)))) {
+            int fieldID = dis.readInt();
+            dis.readInt(); // field type
+            dis.readBoolean(); // town
+            dis.readBoolean(); // swim
+            dis.readLong(); // field limit
+            dis.readInt(); // return map
+            dis.readInt(); // forced return
+            dis.readDouble(); // mob rate
+            dis.readBoolean(); // fly
+            dis.readUTF(); // on first user enter
+            dis.readUTF(); // on user enter
+            dis.readUTF(); // field script
+            for (int i = 0; i < 4; i++) {
+                dis.readBoolean(); // reactor shuffle, expedition only, party only, need skill for fly
+            }
+            for (int i = 0; i < 15; i++) {
+                dis.readInt(); // fixed mob capacity .. barrier arc
+            }
+            dis.readBoolean(); // revive cur field
+            dis.readBoolean(); // revive cur field of no transfer
+            if (dis.readBoolean()) {
+                dis.readShort(); // revive point x
+                dis.readShort(); // revive point y
+            }
+            short fhSize = dis.readShort();
+            for (int i = 0; i < fhSize; i++) {
+                for (int j = 0; j < 10; j++) {
+                    dis.readInt(); // id, layer, group, x1, y1, x2, y2, next, prev, force
+                }
+                dis.readBoolean(); // forbid fall down
+            }
+            short portalSize = dis.readShort();
+            for (int i = 0; i < portalSize; i++) {
+                dis.readInt(); // id
+                dis.readInt(); // type
+                dis.readUTF(); // name
+                dis.readInt(); // target map
+                dis.readUTF(); // target portal name
+                for (int j = 0; j < 4; j++) {
+                    dis.readInt(); // x, y, horizontal impact, vertical impact
+                }
+                dis.readUTF(); // script
+                dis.readBoolean(); // only once
+                dis.readInt(); // delay
+            }
+            short lifeSize = dis.readShort();
+            for (int i = 0; i < lifeSize; i++) {
+                String lifeType = dis.readUTF();
+                int templateID = dis.readInt();
+                for (int j = 0; j < 3; j++) {
+                    dis.readInt(); // x, y, mob time
+                }
+                dis.readBoolean(); // flip
+                dis.readBoolean(); // hide
+                for (int j = 0; j < 4; j++) {
+                    dis.readInt(); // fh, cy, rx0, rx1
+                }
+                dis.readUTF(); // limited name
+                for (int j = 0; j < 7; j++) {
+                    dis.readBoolean(); // use day, use night, hold, no foothold, dummy, spine, mob time on die
+                }
+                dis.readInt(); // regen start
+                dis.readInt(); // mob alive req
+                if ("m".equalsIgnoreCase(lifeType)) {
+                    mobSpawnFields.computeIfAbsent(templateID, k -> new TreeSet<>()).add(fieldID);
+                }
+            }
+        }
     }
 
     public static void clear() {

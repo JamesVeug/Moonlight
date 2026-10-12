@@ -22,6 +22,7 @@ import net.swordie.ms.enums.Stat;
 import net.swordie.ms.life.drop.DropInfo;
 import net.swordie.ms.life.mob.Mob;
 import net.swordie.ms.loaders.DropData;
+import net.swordie.ms.loaders.FieldData;
 import net.swordie.ms.loaders.ItemData;
 import net.swordie.ms.loaders.SkillData;
 import net.swordie.ms.loaders.StringData;
@@ -242,6 +243,7 @@ public class PlayerCommands {
     @Command(names = {"whatdrops", "whodrops"}, requiredType = Player)
     public static class WhatDrops extends PlayerCommand {
         private static final int MAX_LINES = 25;
+        private static final int MAX_MAPS = 3;
 
         public static void execute(Char chr, String[] args) {
             if (args.length < 2 || !Util.isNumber(args[1])) {
@@ -265,8 +267,12 @@ public class PlayerCommands {
                 }
                 int mobId = entry.getKey();
                 String mobName = mobId == -1 ? "All mobs (global drop)" : StringData.getMobStringById(mobId);
-                chr.chatMessage(SpeakerChannel, String.format("%s (%d) - %s", mobName == null ? "Unknown" : mobName,
-                        mobId, formatDrop(entry.getValue())));
+                String line = String.format("%s (%d) - %s", mobName == null ? "Unknown" : mobName,
+                        mobId, formatDrop(entry.getValue()));
+                if (mobId != -1) {
+                    line += " | " + formatSpawnMaps(mobId);
+                }
+                chr.chatMessage(SpeakerChannel, line);
                 lines++;
             }
 
@@ -307,6 +313,21 @@ public class PlayerCommands {
                     : "x" + di.getMinQuant() + "-" + di.getMaxQuant();
             return String.format("%s%% base, %s%% at %dx rate, %s",
                     formatPct(basePct), formatPct(ratePct), GameConstants.MOB_DROP_RATE, quantity);
+        }
+
+        private static String formatSpawnMaps(int mobId) {
+            Set<String> mapNames = new LinkedHashSet<>(); // several fields can share a name
+            for (int fieldId : FieldData.getFieldIdsByMobId(mobId)) {
+                String mapName = StringData.getMapStringById(fieldId);
+                mapNames.add(mapName == null ? String.valueOf(fieldId) : mapName);
+            }
+            if (mapNames.isEmpty()) {
+                return "No fixed spawn map (boss, event or scripted spawn)";
+            }
+            String shown = mapNames.stream().limit(MAX_MAPS).collect(Collectors.joining(", "));
+            return mapNames.size() > MAX_MAPS
+                    ? String.format("Maps: %s (+%d more)", shown, mapNames.size() - MAX_MAPS)
+                    : "Maps: " + shown;
         }
 
         private static String formatPct(double pct) {

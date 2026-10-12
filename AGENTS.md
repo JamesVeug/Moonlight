@@ -45,7 +45,8 @@ Ports: login `8484`, API `8483`, channels `8585-8594` (10x Bera). DB (MySQL 8.0)
 
 - Current monster rates in `GameConstants.java`: EXP **50x**, mesos **100x**, item drops **25x**. Keep `LOCAL-SETUP.md` in sync when changing these constants.
 - Build the replacement image before stopping the running server. For an explicit graceful stop, use `podman --connection podman-machine-default stop --time 120 moonlight-server`. Confirm `Accounts have been saved.` and `Shutdown complete!` in the logs before starting the replacement with `./Compose.ps1 up -d --no-build server`.
-- After a Java change, verify the deployed build, not just the source. Run `./tools/Verify-Server.ps1` to check all 16 client archive API checks and v214 handshakes on login and all ten channel ports.
+- After a Java change, verify the deployed build, not just the source. Run `./tools/Verify-Server.ps1` to check all 16 client archive API checks and v214 handshakes on login and all ten channel ports. The script uses `Stream.ReadExactly` and the single-argument `Stream.Write`, so it needs PowerShell 7. This machine only has Windows PowerShell 5.1, where it fails with `Cannot find an overload for "Write"`; run equivalent checks with `Read(buf, offset, count)` loops until the script is fixed.
+- **Java changes need a restart; there is no hot reload.** Building the image (`podman ... build`) does not touch the running container, so you can build ahead and the next `up -d --no-build server` picks it up. `Server.clearCache()` exists but nothing calls it, and it would not refresh live fields anyway. Python scripts and DB rows are the only things that can change while the server runs.
 
 ## Existing compatibility fixes
 
@@ -65,6 +66,20 @@ Credentials live in `.env` (DB name `Moonlight`, user `moonlight`/`password`). R
 Account rank is `users.accounttype` (stored as the `AccountType` enum **ordinal**, `@Enumerated(ORDINAL)`): `0`=Player, `1`=Tester, `2`=Intern, `3`=GameMaster, `4`=Admin. Changes require the player to relog (account type is cached in memory at login).
 
 **Passwords & creating accounts directly:** `password` is stored hashed, but `LoginHandler`/`ApiRequestHandler` check `Util.isStringBCrypt(dbPassword)` first — if the stored value is NOT a BCrypt hash it's compared as **plaintext** and auto-upgraded to a hash on the next successful login. So you can set a password with `UPDATE users SET password='password' WHERE name='x';` and it just works. All `users` columns are nullable except `id`, so you can pre-create a full account (skipping the in-game Create Account flow) with e.g. `INSERT INTO users (name, password, accounttype, characterslots, pblockreason) VALUES ('theveug','password',4,4,3);` — the `accounts`/character rows are created on first login. Account creation requires name ≥ 4 chars and password ≥ 4 chars.
+
+## Mob drops
+
+- **Sources** (combined in `Mob.dropDrops`):
+  - Per-mob rows in the `mob_drops` table. `mobid = -1` is a global drop, added to every mob below `MobConstants.QUEST_MOB_START` (9000000).
+  - Level-based drops that any mob can roll: equips from the `equip_drops` table (by job and the 10-level bracket of min(char level, mob level)) and consumables from `ItemConstants.consumableDropsPerLevel`.
+  - `resources/mobDrops.txt` / `DropData.loadCompleteDropsFromTxt` is only used by a dev `main()`, not at runtime.
+- **Chance scale:** `chance` is out of `GameConstants.MAX_DROP_CHANCE` (**10000**), so `100` = 1%. The `DropInfo.chance` comment "out of a 1000" is wrong. The effective chance is `chance × dropR(100) × MOB_DROP_RATE / 100`, so 100 → 25% at 25x.
+- **Same-name mobs:** many mobs share a display name with different IDs and different drop tables. Example: Black Kentaurus is 8140101 in Leafre and 2600010 in Eastern Minar Forest. 8140101 had no drop table until it was given 2600010's in `Server/sql/13_custom_drops.sql`. When a player reports a missing drop, check which mob ID actually spawns on their map.
+- **Local drop additions** go in `Server/sql/13_custom_drops.sql` (so a fresh DB has them) **and** into the live DB.
+- **Applying DB drop changes without a restart:** `DropData` caches each mob's drop `Set` on first load. The mob template and every spawned copy share that same `Set` object (`Mob.deepCopy` → `setDrops(getDrops())`), so inserting rows alone does nothing for an already-loaded mob. Add the mob IDs to `MOB_IDS` in `Server/scripts/npc/admin_reloadMobDrops.py` and run `!script npc admin_reloadMobDrops` in-game (Tester+). It only adds missing items; it never removes or changes entries.
+- **`@whatdrops <itemid>`** (alias `@whodrops`, all players): lists mobs that drop the item (`DropData.getMobDropsByItemId`), each with its base chance, its chance at the server rate, the quantity, and up to 3 spawn maps. It also lists level-based drops.
+  - Spawn maps come from `FieldData.getFieldIdsByMobId`. On first use it scans the life section of every field `.dat` (~17.7k files, ~3s); the first call blocks once. `readMobSpawns` duplicates the `.dat` layout of `readFieldFromFile`, so keep them in sync.
+  - Bosses and scripted spawns have no fixed map.
 
 ## In-game commands
 

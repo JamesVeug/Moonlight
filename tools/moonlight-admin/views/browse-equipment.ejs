@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Equipment Browser</title>
+    <link rel="stylesheet" href="/public/style.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <header class="row between">
+        <div>
+          <p><a href="/dashboard">Back to Dashboard</a></p>
+          <h1>Equipment Browser</h1>
+          <p class="muted">Browse by major type first, then slot (weapons, boots, hats, rings, and more).</p>
+        </div>
+        <form method="post" action="/logout">
+          <button type="submit">Log out</button>
+        </form>
+      </header>
+
+      <% if (error) { %>
+        <p class="error"><%= error %></p>
+      <% } %>
+
+      <section class="browse-layout">
+        <article class="card">
+          <h2>Equipment Groups</h2>
+          <div class="type-grid">
+            <% groups.forEach((group) => { %>
+              <a
+                class="type-card <%= group.isActive ? "active" : "" %>"
+                href="/browse/equipment?group=<%= group.key %>"
+              >
+                <strong><%= group.label %></strong>
+                <span><%= group.count %> items</span>
+              </a>
+            <% }) %>
+          </div>
+
+          <h2 class="gap-top">Slots</h2>
+          <div class="type-grid">
+            <% slots.forEach((slot) => { %>
+              <a
+                class="type-card <%= slot.isActive ? "active" : "" %>"
+                href="/browse/equipment?group=<%= activeGroup %>&slot=<%= slot.slotCode %>"
+              >
+                <strong><%= slot.slotLabel %></strong>
+                <span><%= slot.count %> items</span>
+              </a>
+            <% }) %>
+          </div>
+          <p class="gap-top"><a href="/browse/equipment?group=<%= activeGroup %>">Clear slot filter</a></p>
+        </article>
+
+        <aside class="card side-nav">
+          <h2>Quick Paths</h2>
+          <ul>
+            <li><a href="/browse/equipment">All Equipment</a></li>
+            <li><a href="/browse/equipment?group=weapon">Weapons</a></li>
+            <li><a href="/browse/equipment?group=armor">Armour (boots, gloves, etc.)</a></li>
+            <li><a href="/browse/equipment?group=accessory">Accessories</a></li>
+            <li><a href="/dashboard">Name Search</a></li>
+          </ul>
+          <p class="tiny muted">
+            Indexed names: <strong><%= catalogStats.itemsIndexed %></strong> items,
+            <strong><%= catalogStats.mobsIndexed %></strong> mobs.
+          </p>
+        </aside>
+      </section>
+
+      <section class="card gap-top">
+        <h2>
+          <% if (activeSlot) { %>
+            <%= activeSlot.slotLabel %> (<%= activeSlot.groupLabel %>)
+          <% } else { %>
+            <%= groups.find((g) => g.key === activeGroup)?.label || "Equipment" %>
+          <% } %>
+          (<%= totalRows %> items)
+        </h2>
+
+        <% if (!rows.length) { %>
+          <p class="muted">No equipment items found for this filter.</p>
+        <% } else { %>
+          <table>
+            <thead>
+              <tr>
+                <th>itemid</th>
+                <th>item name</th>
+                <th>group</th>
+                <th>slot</th>
+                <th>drop rows</th>
+                <th>top chance</th>
+                <th>max qty</th>
+                <th>action</th>
+              </tr>
+            </thead>
+            <tbody>
+              <% rows.forEach((row) => { %>
+                <tr>
+                  <td><a href="/search/item/<%= row.itemId %>"><%= row.itemId %></a></td>
+                  <td><%= row.name || "Unknown" %></td>
+                  <td><%= row.groupLabel %></td>
+                  <td><%= row.slotLabel %> (#<%= row.slotCode %>)</td>
+                  <td><%= row.dropRows %></td>
+                  <td><%= row.topChance %></td>
+                  <td><%= row.maxQty %></td>
+                  <td><a href="/search/item/<%= row.itemId %>">view drops</a></td>
+                </tr>
+              <% }) %>
+            </tbody>
+          </table>
+          <% if (totalRows > rows.length) { %>
+            <p class="muted">Showing first <%= rows.length %> results to keep page load quick.</p>
+          <% } %>
+        <% } %>
+      </section>
+    </main>
+  </body>
+</html>

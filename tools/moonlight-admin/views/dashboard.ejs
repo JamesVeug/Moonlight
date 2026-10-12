@@ -25,25 +25,52 @@
       <% } %>
 
       <section class="grid two">
-        <form class="card stack" method="post" action="/search/item">
-          <h2>Find drops by item ID</h2>
-          <label>Item ID <input name="itemId" inputmode="numeric" required /></label>
-          <button type="submit">Search item</button>
-        </form>
+        <article class="card stack hidden-street-card">
+          <h2>Browse Like Hidden Street</h2>
+          <p class="muted">Start by category, then drill down to the exact ID only when needed.</p>
+          <p>
+            <a class="cta-link" href="/browse/equipment">Equipment Browser (Weapon, Armour, Accessory, More)</a>
+          </p>
+          <p class="tiny muted">
+            Local catalog indexed: <strong><%= catalogStats.itemsIndexed %></strong> item names,
+            <strong><%= catalogStats.mobsIndexed %></strong> mob names from <%= catalogStats.sourceFiles %> SQL files.
+          </p>
+        </article>
 
-        <form class="card stack" method="post" action="/search/mob">
-          <h2>Find drops by mob ID</h2>
-          <label>Mob ID <input name="mobId" inputmode="numeric" required /></label>
-          <button type="submit">Search mob</button>
+        <form class="card stack" method="post" action="/search/item-name">
+          <h2>Find drops by item name</h2>
+          <label>Item Name <input name="itemQuery" minlength="2" required placeholder="e.g. condensed spirit" /></label>
+          <button type="submit">Search item name</button>
         </form>
       </section>
 
       <section class="grid two gap-top">
+        <form class="card stack" method="post" action="/search/mob-name">
+          <h2>Find drops by mob name</h2>
+          <label>Mob Name <input name="mobQuery" minlength="2" required placeholder="e.g. pierre" /></label>
+          <button type="submit">Search mob name</button>
+        </form>
+
         <article class="card stack">
+          <h2>ID Search (fallback)</h2>
+          <p class="muted">Still available when you already know exact IDs.</p>
+          <form class="stack" method="post" action="/search/item">
+            <label>Item ID <input name="itemId" inputmode="numeric" required /></label>
+            <button type="submit">Search item ID</button>
+          </form>
+          <form class="stack" method="post" action="/search/mob">
+            <label>Mob ID <input name="mobId" inputmode="numeric" required /></label>
+            <button type="submit">Search mob ID</button>
+          </form>
+        </article>
+      </section>
+
+      <section class="grid two gap-top">
+        <form class="card stack" method="post" action="/search/item">
           <h2>Spawn Hints</h2>
           <p class="muted">Lookup local DB hints for where a mob appears in Monster Collection data.</p>
           <p><a href="/spawn-hints">Open spawn hints</a></p>
-        </article>
+        </form>
         <article class="card stack">
           <h2>Account Rescue</h2>
           <p class="muted">Clear DB login flags and view runtime unlock guidance for stuck accounts.</p>
@@ -51,12 +78,32 @@
         </article>
       </section>
 
+      <section class="grid two gap-top">
+        <article class="card stack">
+          <h2>Server Operations</h2>
+          <p class="muted">Run pull + rebuild + graceful restart workflow from panel.</p>
+          <p class="muted">
+            Mode: <strong><%= allowServerControl ? "CONTROL ENABLED" : "CONTROL DISABLED" %></strong>
+          </p>
+          <p><a href="/ops/server">Open server operations</a></p>
+        </article>
+      </section>
+
       <% if (resultType) { %>
         <section class="card">
           <h2>
-            Results for <%= resultType %> ID <%= searchedValue %>
+            Results for <%= resultType %>
+            <% if (searchedValue) { %>
+              <span>#<%= searchedValue %></span>
+            <% } %>
+            <% if (searchQuery) { %>
+              <span>"<%= searchQuery %>"</span>
+            <% } %>
             (<%= rows.length %> rows)
           </h2>
+          <% if (resultSummary) { %>
+            <p class="muted">Match summary: <strong><%= resultSummary %></strong></p>
+          <% } %>
           <% if (!rows.length) { %>
             <p class="muted">No rows found.</p>
           <% } else { %>
@@ -65,7 +112,10 @@
                 <tr>
                   <th>row id</th>
                   <th>mobid</th>
+                  <th>mob name</th>
                   <th>itemid</th>
+                  <th>item name</th>
+                  <th>type</th>
                   <th>chance</th>
                   <th>min</th>
                   <th>max</th>
@@ -76,8 +126,16 @@
                 <% rows.forEach((r) => { %>
                   <tr>
                     <td><%= r.id %></td>
-                    <td><%= r.mobid %></td>
-                    <td><%= r.itemid %></td>
+                    <td><a href="/search/mob/<%= r.mobid %>"><%= r.mobid %></a></td>
+                    <td><%= r.mobName || "Unknown" %></td>
+                    <td><a href="/search/item/<%= r.itemid %>"><%= r.itemid %></a></td>
+                    <td><%= r.itemName || "Unknown" %></td>
+                    <td>
+                      <%= r.itemMajorLabel %>
+                      <% if (r.itemSlotLabel) { %>
+                        / <%= r.itemSlotLabel %>
+                      <% } %>
+                    </td>
                     <td><%= r.chance %></td>
                     <td><%= r.minquant %></td>
                     <td><%= r.maxquant %></td>

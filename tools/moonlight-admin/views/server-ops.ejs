@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Server Operations</title>
+    <link rel="stylesheet" href="/public/style.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <header class="row between">
+        <div>
+          <p><a href="/dashboard">Back to Dashboard</a></p>
+          <h1>Server Operations</h1>
+          <p class="muted">Run one-click deploy: git pull, image rebuild, graceful stop, and restart.</p>
+        </div>
+        <form method="post" action="/logout">
+          <button type="submit">Log out</button>
+        </form>
+      </header>
+
+      <% if (error) { %>
+        <p class="error"><%= error %></p>
+      <% } %>
+      <% if (message) { %>
+        <p class="ok"><%= message %></p>
+      <% } %>
+
+      <section class="card stack">
+        <h2>Deploy Controls</h2>
+        <p class="muted">
+          Feature flag: <strong><%= allowServerControl ? "ENABLED" : "DISABLED" %></strong>
+        </p>
+        <p class="warn">
+          This operation runs git pull --ff-only, rebuilds the server image, performs a graceful stop, validates shutdown markers,
+          and starts the server again.
+        </p>
+
+        <form method="post" action="/ops/server/deploy" class="stack">
+          <label>
+            Confirmation (type DEPLOY)
+            <input name="confirmDeploy" required <%= allowServerControl ? "" : "disabled" %> />
+          </label>
+          <button type="submit" <%= allowServerControl ? "" : "disabled" %>>Run Deploy Workflow</button>
+        </form>
+
+        <hr />
+
+        <h2>Restart-Only</h2>
+        <p class="muted">
+          Skips git pull and image rebuild. Performs graceful stop, validates shutdown markers, then starts server.
+        </p>
+        <form method="post" action="/ops/server/restart" class="stack">
+          <label>
+            Confirmation (type RESTART)
+            <input name="confirmRestart" required <%= allowServerControl ? "" : "disabled" %> />
+          </label>
+          <button type="submit" <%= allowServerControl ? "" : "disabled" %>>Run Restart-Only Workflow</button>
+        </form>
+      </section>
+
+      <section class="card gap-top stack">
+        <h2>Current Status</h2>
+        <p>
+          State:
+          <strong id="deploy-state"><%= deploy.running ? "Running" : "Idle" %></strong>
+          <span id="deploy-action" class="muted">(<%= deploy.action || "none" %>)</span>
+          <% if (deploy.success === true) { %>
+            <span class="ok">(last run succeeded)</span>
+          <% } else if (deploy.success === false) { %>
+            <span class="error">(last run failed)</span>
+          <% } %>
+        </p>
+        <p class="muted" id="deploy-meta">
+          Started: <%= deploy.startedAt || "-" %> | Finished: <%= deploy.finishedAt || "-" %> | Triggered by: <%= deploy.triggeredBy || "-" %>
+        </p>
+        <p class="muted" id="deploy-exit">
+          Exit code: <%= deploy.exitCode === null ? "-" : deploy.exitCode %>
+          <% if (deploy.error) { %>
+            | Error: <%= deploy.error %>
+          <% } %>
+        </p>
+        <pre id="deploy-log"><%= deploy.lines.join("\n") || "No deploy output yet." %></pre>
+      </section>
+    </main>
+
+    <script>
+      (function () {
+        const stateEl = document.getElementById("deploy-state");
+        const actionEl = document.getElementById("deploy-action");
+        const metaEl = document.getElementById("deploy-meta");
+        const exitEl = document.getElementById("deploy-exit");
+        const logEl = document.getElementById("deploy-log");
+
+        async function refreshStatus() {
+          try {
+            const res = await fetch("/ops/server/status", { credentials: "same-origin" });
+            if (!res.ok) {
+              return;
+            }
+            const data = await res.json();
+            const deploy = data.deploy || {};
+            stateEl.textContent = deploy.running ? "Running" : "Idle";
+            actionEl.textContent = "(" + (deploy.action || "none") + ")";
+            metaEl.textContent =
+              "Started: " + (deploy.startedAt || "-") +
+              " | Finished: " + (deploy.finishedAt || "-") +
+              " | Triggered by: " + (deploy.triggeredBy || "-");
+
+            let exitLine = "Exit code: " + (deploy.exitCode === null ? "-" : deploy.exitCode);
+            if (deploy.error) {
+              exitLine += " | Error: " + deploy.error;
+            }
+            exitEl.textContent = exitLine;
+
+            const lines = Array.isArray(deploy.lines) ? deploy.lines : [];
+            logEl.textContent = lines.length ? lines.join("\n") : "No deploy output yet.";
+            logEl.scrollTop = logEl.scrollHeight;
+          } catch (_) {
+            // Keep polling even if one request fails.
+          }
+        }
+
+        setInterval(refreshStatus, 2000);
+        refreshStatus();
+      })();
+    </script>
+  </body>
+</html>

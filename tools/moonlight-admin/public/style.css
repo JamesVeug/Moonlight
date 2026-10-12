@@ -1,13 +1,13 @@
 :root {
-  --bg: #f4f2ee;
+  --bg: #e6effc;
   --card: #ffffff;
   --ink: #181818;
   --muted: #666;
-  --accent: #1f6feb;
+  --accent: #00a7e8;
   --warn: #a45500;
   --ok: #0b7a2a;
   --err: #b42318;
-  --line: #ddd;
+  --line: #d6dfea;
 }
 
 * {
@@ -16,9 +16,9 @@
 
 body {
   margin: 0;
-  font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+  font-family: "Trebuchet MS", "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
   color: var(--ink);
-  background: radial-gradient(circle at top right, #f9f7f2, var(--bg));
+  background: linear-gradient(180deg, #cfe0f8 0, #e9f2fe 22rem, #f4f8ff 100%);
 }
 
 h1, h2 {
@@ -38,7 +38,7 @@ h1, h2 {
 .card {
   background: var(--card);
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: 8px;
   padding: 1rem;
 }
 
@@ -88,6 +88,24 @@ button {
   cursor: pointer;
 }
 
+a {
+  color: #0077bd;
+}
+
+.cta-link {
+  display: inline-block;
+  background: #0aa6de;
+  color: #fff;
+  border-radius: 6px;
+  text-decoration: none;
+  padding: 0.5rem 0.8rem;
+  font-weight: 700;
+}
+
+.hidden-street-card {
+  background: linear-gradient(160deg, #ffffff, #f7fbff 45%, #eef7ff);
+}
+
 button[disabled] {
   opacity: 0.5;
   cursor: default;
@@ -107,6 +125,10 @@ th, td {
 
 .muted {
   color: var(--muted);
+}
+
+.tiny {
+  font-size: 0.82rem;
 }
 
 .warn {
@@ -130,4 +152,63 @@ pre {
   border-radius: 8px;
   padding: 0.7rem;
   margin: 0;
+}
+
+.browse-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(250px, 1fr);
+  gap: 1rem;
+  align-items: start;
+}
+
+.type-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  gap: 0.7rem;
+}
+
+.type-card {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 0.7rem;
+  text-decoration: none;
+  color: var(--ink);
+  display: grid;
+  gap: 0.2rem;
+  background: linear-gradient(180deg, #fff, #f1f6fb);
+}
+
+.type-card.active {
+  border-color: #32a7de;
+  box-shadow: 0 0 0 2px rgba(50, 167, 222, 0.15);
+}
+
+.type-card span {
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.side-nav ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.side-nav li {
+  border-bottom: 1px solid var(--line);
+  padding: 0.45rem 0;
+}
+
+.side-nav a {
+  text-decoration: none;
+}
+
+.side-nav a.active {
+  font-weight: 700;
+}
+
+@media (max-width: 840px) {
+  .browse-layout {
+    grid-template-columns: 1fr;
+  }
 }

@@ -1,29 +1,53 @@
 const fs = require("fs");
 const path = require("path");
+const { spawn } = require("child_process");
 const express = require("express");
 const session = require("express-session");
 const helmet = require("helmet");
 const morgan = require("morgan");
 const dotenv = require("dotenv");
 const { query } = require("./db");
+const {
+  EQUIPMENT_GROUP_LABELS,
+  getItemCategory,
+  loadCatalog,
+  searchByName,
+} = require("./catalog");
 
 dotenv.config({ path: path.join(__dirname, "..", ".env") });
 
 const app = express();
 const port = Number(process.env.PORT || 8787);
 const allowEdits = String(process.env.ALLOW_EDITS || "false").toLowerCase() === "true";
+const allowServerControl = String(process.env.ALLOW_SERVER_CONTROL || "false").toLowerCase() === "true";
 const adminUser = process.env.ADMIN_USERNAME || "admin";
 const adminPass = process.env.ADMIN_PASSWORD || "change-me";
+const catalog = loadCatalog();
 
 const logsDir = path.join(__dirname, "..", "logs");
 const auditFilePath = path.join(logsDir, "audit.log");
 const rollbackDir = path.join(logsDir, "rollback");
+const deployLogPath = path.join(logsDir, "server-deploy.log");
+const deployScriptPath = path.join(__dirname, "..", "scripts", "Deploy-ServerUpdate.ps1");
+const repoRoot = path.resolve(__dirname, "..", "..", "..");
 if (!fs.existsSync(logsDir)) {
   fs.mkdirSync(logsDir, { recursive: true });
 }
 if (!fs.existsSync(rollbackDir)) {
   fs.mkdirSync(rollbackDir, { recursive: true });
 }
+
+const deployState = {
+  running: false,
+  action: null,
+  startedAt: null,
+  finishedAt: null,
+  success: null,
+  exitCode: null,
+  triggeredBy: null,
+  error: null,
+  lines: [],
+};
 
 app.set("view engine", "ejs");
 app.set("views", path.join(__dirname, "..", "views"));
@@ -63,6 +87,106 @@ function appendAudit(event) {
   fs.appendFileSync(auditFilePath, line, "utf8");
 }
 
+function appendDeployLine(message) {
+  const line = String(message || "").trim();
+  if (!line) {
+    return;
+  }
+  const stamped = `[${new Date().toISOString()}] ${line}`;
+  deployState.lines.push(stamped);
+  if (deployState.lines.length > 500) {
+    deployState.lines.splice(0, deployState.lines.length - 500);
+  }
+  fs.appendFileSync(deployLogPath, `${stamped}\n`, "utf8");
+}
+
+function deployStatusSnapshot() {
+  return {
+    running: deployState.running,
+    action: deployState.action,
+    startedAt: deployState.startedAt,
+    finishedAt: deployState.finishedAt,
+    success: deployState.success,
+    exitCode: deployState.exitCode,
+    triggeredBy: deployState.triggeredBy,
+    error: deployState.error,
+    lines: [...deployState.lines],
+  };
+}
+
+function startServerWorkflow(actorName, action) {
+  const normalizedAction = action === "restart" ? "restart" : "deploy";
+  const actionLabel = normalizedAction === "restart" ? "Restart-only" : "Deploy";
+
+  if (deployState.running) {
+    return { started: false, reason: "A server workflow is already in progress." };
+  }
+  if (!fs.existsSync(deployScriptPath)) {
+    return { started: false, reason: `Deploy script not found: ${deployScriptPath}` };
+  }
+
+  deployState.running = true;
+  deployState.action = normalizedAction;
+  deployState.startedAt = new Date().toISOString();
+  deployState.finishedAt = null;
+  deployState.success = null;
+  deployState.exitCode = null;
+  deployState.triggeredBy = actorName;
+  deployState.error = null;
+  deployState.lines = [];
+
+  appendDeployLine(`${actionLabel} workflow requested by ${actorName}.`);
+  appendDeployLine("Starting PowerShell workflow script.");
+
+  const psArgs = ["-ExecutionPolicy", "Bypass", "-File", deployScriptPath];
+  if (normalizedAction === "restart") {
+    psArgs.push("-RestartOnly");
+  }
+
+  const child = spawn(
+    "powershell",
+    psArgs,
+    {
+      cwd: repoRoot,
+      windowsHide: true,
+    }
+  );
+
+  child.stdout.on("data", (chunk) => {
+    const text = String(chunk || "");
+    text.split(/\r?\n/).forEach((line) => appendDeployLine(line));
+  });
+
+  child.stderr.on("data", (chunk) => {
+    const text = String(chunk || "");
+    text.split(/\r?\n/).forEach((line) => appendDeployLine(`[stderr] ${line}`));
+  });
+
+  child.on("error", (err) => {
+    deployState.running = false;
+    deployState.finishedAt = new Date().toISOString();
+    deployState.success = false;
+    deployState.exitCode = -1;
+    deployState.error = err.message;
+    appendDeployLine(`Failed to start deploy process: ${err.message}`);
+  });
+
+  child.on("close", (code) => {
+    deployState.running = false;
+    deployState.finishedAt = new Date().toISOString();
+    deployState.exitCode = Number.isInteger(code) ? code : -1;
+    deployState.success = code === 0;
+    if (code === 0) {
+      appendDeployLine(`${actionLabel} workflow finished successfully.`);
+    } else {
+      deployState.error = `${actionLabel} workflow failed with exit code ${code}.`;
+      appendDeployLine(deployState.error);
+    }
+  });
+
+  return { started: true };
+}
+
 function rollbackSqlForDropRow(row) {
   return [
     `-- rollback for mob_drops row ${row.id}`,
@@ -78,6 +202,90 @@ function writeRollbackSql(row) {
   const fullPath = path.join(rollbackDir, filename);
   fs.writeFileSync(fullPath, rollbackSqlForDropRow(row), "utf8");
   return fullPath;
+}
+
+function getMobName(mobId) {
+  return catalog.mobNames.get(Number(mobId)) || null;
+}
+
+function getItemName(itemId) {
+  return catalog.itemNames.get(Number(itemId)) || null;
+}
+
+function enrichDropRows(rows) {
+  return rows.map((row) => {
+    const itemMeta = getItemCategory(row.itemid);
+    return {
+      ...row,
+      mobName: getMobName(row.mobid),
+      itemName: getItemName(row.itemid),
+      itemMajorLabel: itemMeta.majorLabel,
+      itemSlotLabel: itemMeta.equipmentSlotLabel || null,
+    };
+  });
+}
+
+function renderDashboard(res, values = {}) {
+  return res.render("dashboard", {
+    allowEdits,
+    allowServerControl,
+    resultType: null,
+    rows: [],
+    searchedValue: null,
+    searchQuery: null,
+    searchBy: null,
+    resultSummary: null,
+    error: null,
+    catalogStats: catalog.stats,
+    ...values,
+  });
+}
+
+function renderServerOps(res, values = {}) {
+  return res.render("server-ops", {
+    allowServerControl,
+    deploy: deployStatusSnapshot(),
+    error: null,
+    message: null,
+    ...values,
+  });
+}
+
+function toIntSet(values) {
+  const out = [];
+  for (const value of values) {
+    const parsed = Number.parseInt(String(value), 10);
+    if (Number.isFinite(parsed)) {
+      out.push(parsed);
+    }
+  }
+  return [...new Set(out)];
+}
+
+async function queryDropsById(kind, id) {
+  if (kind === "item") {
+    const rows = await query(
+      "SELECT id, mobid, itemid, chance, minquant, maxquant FROM mob_drops WHERE itemid = ? ORDER BY chance DESC, mobid ASC",
+      [id]
+    );
+    return rows;
+  }
+  const rows = await query(
+    "SELECT id, mobid, itemid, chance, minquant, maxquant FROM mob_drops WHERE mobid = ? ORDER BY chance DESC, itemid ASC",
+    [id]
+  );
+  return rows;
+}
+
+async function queryDropsByManyIds(column, ids, rowLimit = 1500) {
+  if (!ids.length) {
+    return [];
+  }
+  const placeholders = ids.map(() => "?").join(",");
+  const sql =
+    `SELECT id, mobid, itemid, chance, minquant, maxquant FROM mob_drops ` +
+    `WHERE ${column} IN (${placeholders}) ORDER BY chance DESC, mobid ASC LIMIT ${rowLimit}`;
+  return query(sql, ids);
 }
 
 app.get("/", (req, res) => {
@@ -108,13 +316,234 @@ app.post("/logout", (req, res) => {
 });
 
 app.get("/dashboard", requireAuth, (req, res) => {
-  res.render("dashboard", {
-    allowEdits,
-    resultType: null,
-    rows: [],
-    searchedValue: null,
-    error: null,
+  renderDashboard(res);
+});
+
+app.get("/ops/server", requireAuth, (req, res) => {
+  renderServerOps(res);
+});
+
+app.get("/ops/server/status", requireAuth, (req, res) => {
+  return res.json({
+    allowServerControl,
+    deploy: deployStatusSnapshot(),
   });
+});
+
+app.post("/ops/server/deploy", requireAuth, (req, res) => {
+  if (!allowServerControl) {
+    return renderServerOps(res.status(403), {
+      error: "Server control is disabled. Set ALLOW_SERVER_CONTROL=true in moonlight-admin .env.",
+    });
+  }
+
+  const confirmDeploy = String(req.body.confirmDeploy || "").trim();
+  if (confirmDeploy !== "DEPLOY") {
+    return renderServerOps(res.status(400), {
+      error: 'Type DEPLOY exactly to confirm this operation.',
+    });
+  }
+
+  const actor = req.session?.user || "unknown";
+  const startResult = startServerWorkflow(actor, "deploy");
+  if (!startResult.started) {
+    return renderServerOps(res.status(409), {
+      error: startResult.reason,
+    });
+  }
+
+  appendAudit({
+    actor,
+    action: "server_deploy_requested",
+    source: "moonlight_admin",
+  });
+
+  return renderServerOps(res, {
+    message: "Deploy started. This page will stream status/output.",
+  });
+});
+
+app.post("/ops/server/restart", requireAuth, (req, res) => {
+  if (!allowServerControl) {
+    return renderServerOps(res.status(403), {
+      error: "Server control is disabled. Set ALLOW_SERVER_CONTROL=true in moonlight-admin .env.",
+    });
+  }
+
+  const confirmRestart = String(req.body.confirmRestart || "").trim();
+  if (confirmRestart !== "RESTART") {
+    return renderServerOps(res.status(400), {
+      error: 'Type RESTART exactly to confirm restart-only workflow.',
+    });
+  }
+
+  const actor = req.session?.user || "unknown";
+  const startResult = startServerWorkflow(actor, "restart");
+  if (!startResult.started) {
+    return renderServerOps(res.status(409), {
+      error: startResult.reason,
+    });
+  }
+
+  appendAudit({
+    actor,
+    action: "server_restart_requested",
+    source: "moonlight_admin",
+  });
+
+  return renderServerOps(res, {
+    message: "Restart-only workflow started. This page will stream status/output.",
+  });
+});
+
+app.get("/browse/equipment", requireAuth, async (req, res) => {
+  const requestedGroup = String(req.query.group || "all").trim().toLowerCase();
+  const requestedSlot = toInt(req.query.slot, 0);
+
+  try {
+    const rows = await query(
+      "SELECT itemid, COUNT(*) AS dropRows, MAX(chance) AS topChance, MAX(maxquant) AS maxQty FROM mob_drops WHERE itemid BETWEEN 1000000 AND 1999999 GROUP BY itemid"
+    );
+
+    const equipmentRows = rows
+      .map((row) => {
+        const itemId = Number(row.itemid);
+        const category = getItemCategory(itemId);
+        return {
+          itemId,
+          name: getItemName(itemId),
+          dropRows: Number(row.dropRows) || 0,
+          topChance: Number(row.topChance) || 0,
+          maxQty: Number(row.maxQty) || 0,
+          slotCode: category.equipmentSlot,
+          slotLabel: category.equipmentSlotLabel || "Other",
+          groupKey: category.equipmentGroup || "other",
+          groupLabel: category.equipmentGroupLabel || EQUIPMENT_GROUP_LABELS.other,
+        };
+      })
+      .filter((row) => Number.isInteger(row.slotCode) && row.slotCode > 0);
+
+    const groupCounts = new Map();
+    const slotMap = new Map();
+    for (const row of equipmentRows) {
+      groupCounts.set(row.groupKey, (groupCounts.get(row.groupKey) || 0) + 1);
+      if (!slotMap.has(row.slotCode)) {
+        slotMap.set(row.slotCode, {
+          slotCode: row.slotCode,
+          slotLabel: row.slotLabel,
+          groupKey: row.groupKey,
+          groupLabel: row.groupLabel,
+          count: 0,
+        });
+      }
+      slotMap.get(row.slotCode).count += 1;
+    }
+
+    const groups = [
+      { key: "all", label: "All Equipment", count: equipmentRows.length },
+      ...Object.entries(EQUIPMENT_GROUP_LABELS).map(([key, label]) => ({
+        key,
+        label,
+        count: groupCounts.get(key) || 0,
+      })),
+    ].map((group) => ({
+      ...group,
+      isActive: requestedGroup === group.key,
+    }));
+
+    const validGroupKeys = new Set(groups.map((group) => group.key));
+    const activeGroup = validGroupKeys.has(requestedGroup) ? requestedGroup : "all";
+
+    let filteredByGroup = equipmentRows;
+    if (activeGroup !== "all") {
+      filteredByGroup = equipmentRows.filter((row) => row.groupKey === activeGroup);
+    }
+
+    const slots = [...slotMap.values()]
+      .filter((slot) => activeGroup === "all" || slot.groupKey === activeGroup)
+      .sort((a, b) => {
+        if (a.slotLabel !== b.slotLabel) {
+          return a.slotLabel.localeCompare(b.slotLabel);
+        }
+        return a.slotCode - b.slotCode;
+      })
+      .map((slot) => ({
+        ...slot,
+        isActive: requestedSlot === slot.slotCode,
+      }));
+
+    const validSlotCodes = new Set(slots.map((slot) => slot.slotCode));
+    const activeSlotCode = validSlotCodes.has(requestedSlot) ? requestedSlot : 0;
+
+    const filteredRows = activeSlotCode
+      ? filteredByGroup.filter((row) => row.slotCode === activeSlotCode)
+      : filteredByGroup;
+
+    filteredRows.sort((a, b) => {
+      if (Boolean(a.name) !== Boolean(b.name)) {
+        return a.name ? -1 : 1;
+      }
+      if (a.name && b.name && a.name !== b.name) {
+        return a.name.localeCompare(b.name);
+      }
+      return a.itemId - b.itemId;
+    });
+
+    const activeSlot = activeSlotCode
+      ? slots.find((slot) => slot.slotCode === activeSlotCode) || null
+      : null;
+
+    return res.render("browse-equipment", {
+      allowEdits,
+      groups,
+      activeGroup,
+      slots,
+      activeSlot,
+      rows: filteredRows.slice(0, 450),
+      totalRows: filteredRows.length,
+      catalogStats: catalog.stats,
+      error: null,
+    });
+  } catch (err) {
+    return res.status(500).render("browse-equipment", {
+      allowEdits,
+      groups: [
+        { key: "all", label: "All Equipment", count: 0, isActive: true },
+        ...Object.entries(EQUIPMENT_GROUP_LABELS).map(([key, label]) => ({
+          key,
+          label,
+          count: 0,
+          isActive: false,
+        })),
+      ],
+      activeGroup: "all",
+      slots: [],
+      activeSlot: null,
+      rows: [],
+      totalRows: 0,
+      catalogStats: catalog.stats,
+      error: `DB error: ${err.message}`,
+    });
+  }
+});
+
+app.get("/browse/equipment/accessory", requireAuth, (req, res) => {
+  const legacySlotCodes = {
+    badge: 118,
+    belt: 113,
+    earring: 103,
+    eye: 102,
+    face: 101,
+    medal: 114,
+    pendant: 112,
+    pocket: 116,
+    ring: 111,
+    shoulder: 115,
+  };
+  const rawSlot = String(req.query.slot || "").trim().toLowerCase();
+  const slotCode = legacySlotCodes[rawSlot] || toInt(req.query.slot, 0);
+  const slotQuery = slotCode > 0 ? `&slot=${slotCode}` : "";
+  return res.redirect(`/browse/equipment?group=accessory${slotQuery}`);
 });
 
 app.get("/spawn-hints", requireAuth, (req, res) => {
@@ -225,32 +654,77 @@ app.post("/account-rescue", requireAuth, async (req, res) => {
 app.post("/search/item", requireAuth, async (req, res) => {
   const itemId = toInt(req.body.itemId, -1);
   if (itemId < 0) {
-    return res.status(400).render("dashboard", {
-      allowEdits,
-      resultType: null,
-      rows: [],
-      searchedValue: null,
+    return renderDashboard(res.status(400), {
       error: "Please enter a valid item ID.",
     });
   }
   try {
-    const rows = await query(
-      "SELECT id, mobid, itemid, chance, minquant, maxquant FROM mob_drops WHERE itemid = ? ORDER BY chance DESC, mobid ASC",
-      [itemId]
-    );
-    return res.render("dashboard", {
-      allowEdits,
+    const rows = await queryDropsById("item", itemId);
+    return renderDashboard(res, {
       resultType: "item",
-      rows,
+      rows: enrichDropRows(rows),
       searchedValue: itemId,
-      error: null,
+      resultSummary: getItemName(itemId) || null,
     });
   } catch (err) {
-    return res.status(500).render("dashboard", {
-      allowEdits,
-      resultType: null,
-      rows: [],
-      searchedValue: null,
+    return renderDashboard(res.status(500), {
+      error: `DB error: ${err.message}`,
+    });
+  }
+});
+
+app.get("/search/item/:itemId", requireAuth, async (req, res) => {
+  const itemId = toInt(req.params.itemId, -1);
+  if (itemId < 0) {
+    return renderDashboard(res.status(400), { error: "Invalid item ID." });
+  }
+  try {
+    const rows = await queryDropsById("item", itemId);
+    return renderDashboard(res, {
+      resultType: "item",
+      rows: enrichDropRows(rows),
+      searchedValue: itemId,
+      resultSummary: getItemName(itemId) || null,
+    });
+  } catch (err) {
+    return renderDashboard(res.status(500), { error: `DB error: ${err.message}` });
+  }
+});
+
+app.post("/search/item-name", requireAuth, async (req, res) => {
+  const itemQuery = String(req.body.itemQuery || "").trim();
+  if (itemQuery.length < 2) {
+    return renderDashboard(res.status(400), {
+      error: "Please enter at least 2 characters for item search.",
+      searchQuery: itemQuery,
+      searchBy: "item-name",
+    });
+  }
+
+  try {
+    const matches = searchByName(catalog.itemNames, itemQuery, 120);
+    const itemIds = toIntSet(matches.map((m) => m.id));
+    if (!itemIds.length) {
+      return renderDashboard(res, {
+        resultType: "item-name",
+        rows: [],
+        searchQuery: itemQuery,
+        searchBy: "item-name",
+      });
+    }
+
+    const rows = await queryDropsByManyIds("itemid", itemIds, 1800);
+    return renderDashboard(res, {
+      resultType: "item-name",
+      rows: enrichDropRows(rows),
+      searchQuery: itemQuery,
+      searchBy: "item-name",
+      resultSummary: `${itemIds.length} matching item IDs`,
+    });
+  } catch (err) {
+    return renderDashboard(res.status(500), {
+      searchQuery: itemQuery,
+      searchBy: "item-name",
       error: `DB error: ${err.message}`,
     });
   }
@@ -259,32 +733,77 @@ app.post("/search/item", requireAuth, async (req, res) => {
 app.post("/search/mob", requireAuth, async (req, res) => {
   const mobId = toInt(req.body.mobId, -1);
   if (mobId < 0) {
-    return res.status(400).render("dashboard", {
-      allowEdits,
-      resultType: null,
-      rows: [],
-      searchedValue: null,
+    return renderDashboard(res.status(400), {
       error: "Please enter a valid mob ID.",
     });
   }
   try {
-    const rows = await query(
-      "SELECT id, mobid, itemid, chance, minquant, maxquant FROM mob_drops WHERE mobid = ? ORDER BY chance DESC, itemid ASC",
-      [mobId]
-    );
-    return res.render("dashboard", {
-      allowEdits,
+    const rows = await queryDropsById("mob", mobId);
+    return renderDashboard(res, {
       resultType: "mob",
-      rows,
+      rows: enrichDropRows(rows),
       searchedValue: mobId,
-      error: null,
+      resultSummary: getMobName(mobId) || null,
     });
   } catch (err) {
-    return res.status(500).render("dashboard", {
-      allowEdits,
-      resultType: null,
-      rows: [],
-      searchedValue: null,
+    return renderDashboard(res.status(500), {
+      error: `DB error: ${err.message}`,
+    });
+  }
+});
+
+app.get("/search/mob/:mobId", requireAuth, async (req, res) => {
+  const mobId = toInt(req.params.mobId, -1);
+  if (mobId < 0) {
+    return renderDashboard(res.status(400), { error: "Invalid mob ID." });
+  }
+  try {
+    const rows = await queryDropsById("mob", mobId);
+    return renderDashboard(res, {
+      resultType: "mob",
+      rows: enrichDropRows(rows),
+      searchedValue: mobId,
+      resultSummary: getMobName(mobId) || null,
+    });
+  } catch (err) {
+    return renderDashboard(res.status(500), { error: `DB error: ${err.message}` });
+  }
+});
+
+app.post("/search/mob-name", requireAuth, async (req, res) => {
+  const mobQuery = String(req.body.mobQuery || "").trim();
+  if (mobQuery.length < 2) {
+    return renderDashboard(res.status(400), {
+      error: "Please enter at least 2 characters for mob search.",
+      searchQuery: mobQuery,
+      searchBy: "mob-name",
+    });
+  }
+
+  try {
+    const matches = searchByName(catalog.mobNames, mobQuery, 120);
+    const mobIds = toIntSet(matches.map((m) => m.id));
+    if (!mobIds.length) {
+      return renderDashboard(res, {
+        resultType: "mob-name",
+        rows: [],
+        searchQuery: mobQuery,
+        searchBy: "mob-name",
+      });
+    }
+
+    const rows = await queryDropsByManyIds("mobid", mobIds, 1800);
+    return renderDashboard(res, {
+      resultType: "mob-name",
+      rows: enrichDropRows(rows),
+      searchQuery: mobQuery,
+      searchBy: "mob-name",
+      resultSummary: `${mobIds.length} matching mobs`,
+    });
+  } catch (err) {
+    return renderDashboard(res.status(500), {
+      searchQuery: mobQuery,
+      searchBy: "mob-name",
       error: `DB error: ${err.message}`,
     });
   }

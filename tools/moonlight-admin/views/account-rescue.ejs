@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Account Rescue</title>
+    <link rel="stylesheet" href="/public/style.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <p><a href="/dashboard">Back</a></p>
+      <h1>Account Rescue</h1>
+      <p class="muted">Use this after crashes to clear DB-side online flags and get runtime unlock instructions.</p>
+
+      <% if (error) { %>
+        <p class="error"><%= error %></p>
+      <% } %>
+
+      <form class="card stack" method="post" action="/account-rescue">
+        <label>Username <input name="username" required /></label>
+        <button type="submit">Run rescue</button>
+      </form>
+
+      <% if (result) { %>
+        <section class="card gap-top stack">
+          <h2>Result for <%= result.user.name %> (id <%= result.user.id %>)</h2>
+          <p>guildmembers rows reset: <strong><%= result.guildmembersAffected %></strong></p>
+          <p>guildrequestors rows reset: <strong><%= result.guildrequestorsAffected %></strong></p>
+          <p class="warn"><%= result.runtimeNote %></p>
+          <p class="muted">Recommended runtime command: <strong>!unstuckuser <%= result.user.name %></strong></p>
+        </section>
+      <% } %>
+    </main>
+  </body>
+</html>

@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Moonlight Admin</title>
+    <link rel="stylesheet" href="/public/style.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <header class="row between">
+        <div>
+          <h1>Moonlight Admin</h1>
+          <p class="muted">
+            Mode: <strong><%= allowEdits ? "EDIT ENABLED" : "READ ONLY" %></strong>
+          </p>
+        </div>
+        <form method="post" action="/logout">
+          <button type="submit">Log out</button>
+        </form>
+      </header>
+
+      <% if (error) { %>
+        <p class="error"><%= error %></p>
+      <% } %>
+
+      <section class="grid two">
+        <form class="card stack" method="post" action="/search/item">
+          <h2>Find drops by item ID</h2>
+          <label>Item ID <input name="itemId" inputmode="numeric" required /></label>
+          <button type="submit">Search item</button>
+        </form>
+
+        <form class="card stack" method="post" action="/search/mob">
+          <h2>Find drops by mob ID</h2>
+          <label>Mob ID <input name="mobId" inputmode="numeric" required /></label>
+          <button type="submit">Search mob</button>
+        </form>
+      </section>
+
+      <section class="grid two gap-top">
+        <article class="card stack">
+          <h2>Spawn Hints</h2>
+          <p class="muted">Lookup local DB hints for where a mob appears in Monster Collection data.</p>
+          <p><a href="/spawn-hints">Open spawn hints</a></p>
+        </article>
+        <article class="card stack">
+          <h2>Account Rescue</h2>
+          <p class="muted">Clear DB login flags and view runtime unlock guidance for stuck accounts.</p>
+          <p><a href="/account-rescue">Open account rescue</a></p>
+        </article>
+      </section>
+
+      <% if (resultType) { %>
+        <section class="card">
+          <h2>
+            Results for <%= resultType %> ID <%= searchedValue %>
+            (<%= rows.length %> rows)
+          </h2>
+          <% if (!rows.length) { %>
+            <p class="muted">No rows found.</p>
+          <% } else { %>
+            <table>
+              <thead>
+                <tr>
+                  <th>row id</th>
+                  <th>mobid</th>
+                  <th>itemid</th>
+                  <th>chance</th>
+                  <th>min</th>
+                  <th>max</th>
+                  <th>action</th>
+                </tr>
+              </thead>
+              <tbody>
+                <% rows.forEach((r) => { %>
+                  <tr>
+                    <td><%= r.id %></td>
+                    <td><%= r.mobid %></td>
+                    <td><%= r.itemid %></td>
+                    <td><%= r.chance %></td>
+                    <td><%= r.minquant %></td>
+                    <td><%= r.maxquant %></td>
+                    <td><a href="/drop/<%= r.id %>">open</a></td>
+                  </tr>
+                <% }) %>
+              </tbody>
+            </table>
+          <% } %>
+        </section>
+      <% } %>
+    </main>
+  </body>
+</html>

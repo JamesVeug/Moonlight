@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Spawn Hints</title>
+    <link rel="stylesheet" href="/public/style.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <p><a href="/dashboard">Back</a></p>
+      <h1>Spawn Hints</h1>
+      <p class="muted">This uses local DB tables. It does not guarantee exact map/portal spawn points.</p>
+
+      <% if (error) { %>
+        <p class="error"><%= error %></p>
+      <% } %>
+
+      <form class="card stack" method="post" action="/spawn-hints">
+        <label>Mob ID <input name="mobId" inputmode="numeric" required /></label>
+        <button type="submit">Lookup</button>
+      </form>
+
+      <% if (result) { %>
+        <section class="card gap-top">
+          <h2>Mob <%= result.mobId %></h2>
+          <p class="muted">Drop rows found: <strong><%= result.drops.length %></strong></p>
+
+          <h3>Monster Collection Hints</h3>
+          <% if (!result.collectionRows.length) { %>
+            <p class="muted">No monster_collection rows for this mob.</p>
+          <% } else { %>
+            <table>
+              <thead>
+                <tr>
+                  <th>mobid</th>
+                  <th>region</th>
+                  <th>session</th>
+                  <th>position</th>
+                </tr>
+              </thead>
+              <tbody>
+                <% result.collectionRows.forEach((r) => { %>
+                  <tr>
+                    <td><%= r.mobid %></td>
+                    <td><%= r.region %></td>
+                    <td><%= r.session %></td>
+                    <td><%= r.position %></td>
+                  </tr>
+                <% }) %>
+              </tbody>
+            </table>
+          <% } %>
+
+          <h3 class="gap-top">Drops For This Mob</h3>
+          <% if (!result.drops.length) { %>
+            <p class="muted">No mob_drops rows for this mob.</p>
+          <% } else { %>
+            <table>
+              <thead>
+                <tr>
+                  <th>row id</th>
+                  <th>itemid</th>
+                  <th>chance</th>
+                  <th>min</th>
+                  <th>max</th>
+                  <th>action</th>
+                </tr>
+              </thead>
+              <tbody>
+                <% result.drops.forEach((d) => { %>
+                  <tr>
+                    <td><%= d.id %></td>
+                    <td><%= d.itemid %></td>
+                    <td><%= d.chance %></td>
+                    <td><%= d.minquant %></td>
+                    <td><%= d.maxquant %></td>
+                    <td><a href="/drop/<%= d.id %>">open</a></td>
+                  </tr>
+                <% }) %>
+              </tbody>
+            </table>
+          <% } %>
+        </section>
+      <% } %>
+    </main>
+  </body>
+</html>

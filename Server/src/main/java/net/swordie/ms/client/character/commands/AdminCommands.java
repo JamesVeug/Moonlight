@@ -2141,6 +2141,24 @@ public class AdminCommands {
         }
     }
 
+    @Command(names = {"unstuckuser", "unlockuser", "clearlogin"}, requiredType = Tester)
+    public static class UnstuckUser extends AdminCommand {
+        public static void execute(Char chr, String[] args) {
+            if (args.length < 2) {
+                chr.chatMessage(Notice2, "Usage: !unstuckuser <username>");
+                return;
+            }
+            String targetName = args[1];
+            User user = User.getFromDBByName(targetName);
+            if (user == null) {
+                chr.chatMessage(Notice2, "Could not find user with that name.");
+                return;
+            }
+            user.unstuck();
+            chr.chatMessage(AdminChat, String.format("Cleared runtime login lock for %s (id %d).", user.getName(), user.getId()));
+        }
+    }
+
     @Command(names = {"getnpcsinrect", "getnpcs"}, requiredType = Tester)
     public static class GetNPCs extends AdminCommand {
 

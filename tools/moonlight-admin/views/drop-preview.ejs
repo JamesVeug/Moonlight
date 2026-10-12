@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Preview Drop Update</title>
+    <link rel="stylesheet" href="/public/style.css" />
+  </head>
+  <body>
+    <main class="shell small">
+      <p><a href="/drop/<%= before.id %>">Back</a></p>
+      <h1>Preview change for row <%= before.id %></h1>
+
+      <% if (!allowEdits) { %>
+        <p class="warn">Read-only mode. Set ALLOW_EDITS=true to apply changes.</p>
+      <% } %>
+
+      <% if (error) { %>
+        <p class="error"><%= error %></p>
+      <% } %>
+
+      <section class="card stack">
+        <p><strong>Before</strong>: chance=<%= before.chance %>, min=<%= before.minquant %>, max=<%= before.maxquant %></p>
+        <p><strong>After</strong>: chance=<%= after.chance %>, min=<%= after.minquant %>, max=<%= after.maxquant %></p>
+      </section>
+
+      <section class="card stack gap-top">
+        <h2>Rollback SQL preview</h2>
+        <pre><%= rollbackSql %></pre>
+      </section>
+
+      <form class="card stack gap-top" method="post" action="/drop/<%= before.id %>/apply">
+        <input type="hidden" name="chance" value="<%= after.chance %>" />
+        <input type="hidden" name="minquant" value="<%= after.minquant %>" />
+        <input type="hidden" name="maxquant" value="<%= after.maxquant %>" />
+        <label>
+          Type YES to confirm apply
+          <input name="confirmApply" required />
+        </label>
+        <button type="submit" <%= allowEdits ? "" : "disabled" %>>Apply change</button>
+      </form>
+    </main>
+  </body>
+</html>

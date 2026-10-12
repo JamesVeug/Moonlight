@@ -1,7 +1,9 @@
 ## Ignore non-local env files
 .env
 client-overlay/
-tools/
+tools/*
+!tools/moonlight-admin/
+!tools/moonlight-admin/**
 client/
 Play Moonlight.lnk
 
